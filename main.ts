@@ -360,7 +360,7 @@ function unifiedEdit(sec: Section, strict: boolean): Edit {
       const o = oTexts(h.items);
       if (o.length === 0) {
         const addLines = h.items.filter((it) => it.kind === 'add').map((it) => it.text);
-        const insertPos = Math.min(h.a + d, st.lines.length);
+        const insertPos = Math.max(0, Math.min(h.a + d, st.lines.length));
         const atEnd = insertPos === st.lines.length;
         st.lines.splice(insertPos, 0, ...addLines);
         if (atEnd) st.final = !h.backslashAfterLastCtxOrAdd;
@@ -679,16 +679,24 @@ function v4aEdits(lines: string[], strict: boolean): Edit[] {
     const sec: VSection = { kind, path, lines: [], moveTo: null, chunks: [], updateLine: i + 1 };
     i++;
     if (kind === 'add') {
+      // Only raw blank ("") lines at the end of the section are dropped (SPEC
+      // section 8: blank lines at the end of a section are not part of it).
+      // A "+" line is not blank: it is a real empty line of the file.
+      const rawAdd: string[] = [];
       while (i < last && !isSectionStart(lines[i]!)) {
         const l = lines[i]!;
         if (l === '' || l[0] === '+') {
           sec.lines.push(l === '' ? '' : l.slice(1));
+          rawAdd.push(l);
           i++;
         } else {
           throw new Exit2(`error: parse ${i + 1}`);
         }
       }
-      while (sec.lines.length > 0 && sec.lines[sec.lines.length - 1] === '') sec.lines.pop();
+      while (sec.lines.length > 0 && rawAdd[rawAdd.length - 1] === '') {
+        sec.lines.pop();
+        rawAdd.pop();
+      }
     } else if (kind === 'delete') {
       while (i < last && !isSectionStart(lines[i]!)) {
         if (blank(lines[i]!)) {
@@ -699,7 +707,7 @@ function v4aEdits(lines: string[], strict: boolean): Edit[] {
       }
     } else {
       if (i < last && lines[i]!.startsWith('*** Move to:')) {
-        sec.moveTo = lines[i]!.slice(13).trim();
+        sec.moveTo = lines[i]!.slice(12).trim();
         i++;
       }
       let cur: VChunk | null = null;
@@ -841,7 +849,8 @@ function run(args: string[]): { code: number; out: string[] } {
   for (const p of modified) rows.push({ key: p, line: `M ${p}` });
   rows.sort((a, b) => Buffer.compare(Buffer.from(a.key), Buffer.from(b.key)));
   if (!check) {
-    for (const p of [...tree.now.keys()]) {
+    // Write in byte order of the paths, as the kit's starter does.
+    for (const p of [...tree.now.keys()].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
       const was = tree.original(p);
       const now = tree.now.get(p)!;
       if (was === now) continue;
