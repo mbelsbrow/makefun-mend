@@ -728,7 +728,24 @@ function v4aEdits(lines: string[], strict: boolean): Edit[] {
           i++;
         } else if (l === '' || l[0] === ' ' || l[0] === '-' || l[0] === '+') {
           if (cur === null) {
-            if (sec.chunks.length > 0) throw new Exit2(`error: parse ${i + 1}`);
+            if (sec.chunks.length > 0) {
+              // A truly empty line after `*** End of File`: it cannot start a
+              // chunk (only the first chunk may start at a body line), but
+              // SPEC section 8 says blank lines at the end of a section
+              // (before the next section or `*** End Patch`) are not part of
+              // it. So skip empty lines only when nothing but empty lines
+              // follows before the section ends; otherwise it is still a
+              // parse error at this line (e.g. before the next `@@`).
+              if (l === '') {
+                let j = i;
+                while (j < last && lines[j] === '') j++;
+                if (j >= last || isSectionStart(lines[j]!)) {
+                  i = j;
+                  continue;
+                }
+              }
+              throw new Exit2(`error: parse ${i + 1}`);
+            }
             cur = startChunk(null);
           }
           if (l === '') cur.items.push({ kind: 'ctx', text: '', oIdx: -1 });
